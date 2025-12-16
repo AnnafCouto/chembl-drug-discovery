@@ -23,10 +23,9 @@ Leveraging my background as a **Biotechnologist and MSc in Analytical Chemistry*
 ## 🛠️ Tech Stack & Skills
 
 * **Database:** SQLite (ChEMBL Database Version 36).
-* **Language:** SQL (Dialect: SQLite).
-* **Tools:** DBeaver (for query execution and visualization).
+* **Language:** SQL.
 * **Key Techniques:**
-    * ✅ **Window Functions** (`SUM() OVER`) for running totals (cumulative analysis).
+    * ✅ **Window Functions** for running totals (cumulative analysis).
     * ✅ **CTEs (Common Table Expressions)** for modularizing complex logic.
     * ✅ **Advanced Joins** connecting 4+ tables (Metabolites → Activities → Assays → Targets).
     * ✅ **Data Cleaning** (Handling `NULL`s, String Manipulation, Deduplication).
@@ -73,6 +72,18 @@ Contains the data resulting from SQL query 03 and 06 used by `generate_graphs.py
 **The Solution:** Aggregated citation counts from the `docs` and `compound_records` tables.
 
 #### **A. Top 10 Most Cited Metabolites**
+
+```sql
+SELECT m.name, COUNT(d.doi) AS "citations"
+FROM metabolites m 
+	JOIN compound_records cr
+		ON m.molregno = cr.molregno
+	JOIN docs d
+		ON cr.doc_id = d.doc_id
+GROUP BY m.molregno
+ORDER BY COUNT(d.doi) DESC LIMIT 10;
+```
+
 > **Insight:** The analysis reveals that established antibiotics (e.g., **ciprofloxacin, rifampin, vancomycin**) and chemotherapy agents (e.g., **doxorubicin, paclitaxel**) dominate scientific literature. The high prominence of **Chloroquine** reflects the surge in drug repurposing research related to recent global health crises (COVID-19).
 
 | Rank | Metabolite Name | Citations (DOI) |
@@ -84,6 +95,19 @@ Contains the data resulting from SQL query 03 and 06 used by `generate_graphs.py
 | 5 | RIFAMPIN | 1111 |
 
 #### **B. Top Journals by Metabolite Mentions**
+
+```sql
+SELECT d.journal, COUNT(m.molregno) AS "metabolites_mentions"
+FROM metabolites m 
+	JOIN compound_records cr
+		ON m.molregno = cr.molregno
+	JOIN docs d
+		ON cr.doc_id = d.doc_id
+GROUP BY d.journal
+HAVING d.journal IS NOT NULL
+ORDER BY COUNT(m.molregno) DESC LIMIT 10;
+```
+
 > The *Journal of Medicinal Chemistry* stands out as the leading repository of bioactivity data.
 
 | Rank | Journal Name | Metabolite Mentions |
@@ -99,6 +123,22 @@ Contains the data resulting from SQL query 03 and 06 used by `generate_graphs.py
 > **Concept Note:** Lipinski's Rule of 5 (Ro5) is a guideline used to predict oral "druggability." Poor absorption is likely if a compound violates specific thresholds (MW > 500, LogP > 5, etc.) [1,2].
 
 **The Business Question:** *What percentage of approved oral drugs actually strictly follow Lipinski's Rule of 5?*
+
+```sql
+SELECT cp.num_ro5_violations AS "violations", 
+	COUNT(m.molregno) AS "drugs", 
+	ROUND(COUNT(m.molregno) * 100.0 / SUM(COUNT(m.molregno)) OVER (), 2) || " %" AS "drugs_percentage"
+FROM metabolites m 
+	JOIN molecule_dictionary md
+		ON m.molregno = md.molregno
+	JOIN compound_properties cp
+		ON m.molregno = cp.molregno
+WHERE (md.max_phase = 4
+		AND md.oral = 1
+		AND cp.num_ro5_violations IS NOT NULL)
+GROUP BY cp.num_ro5_violations
+ORDER BY cp.num_ro5_violations DESC;
+```
 
 **The Solution:** Calculated compliance percentages using conditional aggregation, strictly filtering for `max_phase = 4` (Approved) and `oral = 1`.
 
@@ -122,7 +162,36 @@ Contains the data resulting from SQL query 03 and 06 used by `generate_graphs.py
 
 **The Business Question:** *Which metabolites show the highest potency (lowest IC50) specifically against Homo sapiens targets?*
 
+```sql
+SELECT 	m.pref_name AS name, top_activities.ic50, top_activities.units
+FROM (
+	SELECT 
+		a.molregno, 
+		a.standard_value AS "IC50", 
+		a.standard_units AS "units"
+	FROM activities a
+		JOIN assays aa ON a.assay_id = aa.assay_id
+		JOIN target_dictionary td ON aa.tid = td.tid
+	WHERE a.standard_type = 'IC50'
+		AND a.potential_duplicate = 0
+		AND td.organism = 'Homo sapiens'
+		AND a.standard_value IS NOT NULL
+		AND a.standard_value > 0  
+) AS top_activities 
+JOIN molecule_dictionary m
+	ON top_activities.molregno = m.molregno
+WHERE m.pref_name IS NOT NULL
+ORDER BY top_activities.IC50 ASC LIMIT 10;
+```
+
 **The Solution:** Executed a 4-level JOIN strategy to link chemical structures to biological targets, ensuring correct organism filtering and data quality.
+
+| Name | IC50 | Units |
+| :--- | :--- | :--- |
+| ... | ... | ... |
+| TAK-020 |	0.000000005012 | nM
+| LEVOSULPIRIDE |	0.00000002 | nM
+| ... | ... | ... |
 
 > **Result:** The query successfully extracted a ranked list of compounds with activity in the picomolar/nanomolar range, which are critical candidates for the initial phases of Drug Discovery.
 > **Note:** The ranking includes mixed units (nM and ug.mL-1) as found in the raw database.
@@ -132,7 +201,26 @@ Contains the data resulting from SQL query 03 and 06 used by `generate_graphs.py
 ### 4. Historical Evolution of Drug Discovery 📈
 **The Business Question:** *How has the volume of new metabolite discoveries evolved over the last decades?*
 
-**The Solution:** Utilized `GROUP BY` on publication years and a **Window Function** to calculate the cumulative sum (running total) of discoveries.
+```sql
+WITH historical_discovery AS (
+	SELECT m.molregno, MIN(d.year) AS "discovery_year"
+	FROM metabolites m 
+		JOIN compound_records cr
+			ON m.molregno = cr.molregno
+		JOIN docs d
+			ON cr.doc_id = d.doc_id
+	WHERE d.year IS NOT NULL
+	GROUP BY m.molregno
+)
+SELECT discovery_year, 
+	COUNT(molregno) AS "metabolites_count",
+	SUM(COUNT(molregno)) OVER(ORDER BY discovery_year) AS "accumulated_metabolites_count"
+FROM historical_discovery
+GROUP BY discovery_year
+ORDER BY discovery_year ASC;
+```
+
+**The Solution:** Aggregated data by publication years and a calculate the cumulative sum (running total) of discoveries.
 
 | Year | New Metabolites | Accumulated Total |
 | :--- | :--- | :--- |
@@ -145,19 +233,6 @@ Contains the data resulting from SQL query 03 and 06 used by `generate_graphs.py
 
 ![Historical Evolution Graph](assets/historical_evolution.png)
 *(Chart generated via Python)*
-
----
-
-## 🛠️ Tech Stack & Skills
-
-* **Database:** SQLite (ChEMBL Database Version 36).
-* **Languages:** SQL (Dialect: SQLite), Python (Pandas, Matplotlib/Seaborn).
-* **Tools:** DBeaver (SQL execution), VS Code (Scripting).
-* **Key SQL Techniques:**
-    * ✅ **Window Functions** (`SUM() OVER`) for running totals (cumulative analysis).
-    * ✅ **CTEs (Common Table Expressions)** for modularizing complex logic.
-    * ✅ **Advanced Joins** connecting 4+ tables (Metabolites → Activities → Assays → Targets).
-    * ✅ **Data Cleaning** (Handling `NULL`s, String Manipulation, Deduplication).
 
 ---
 
