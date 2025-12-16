@@ -92,7 +92,7 @@ The SQL logic is modularized into 6 sequential scripts to ensure reproducibility
 
 > **Insight:** The analysis demonstrates that **77% of approved oral drugs are fully compliant**. However, nearly **22% of successful drugs violate at least one criterion**, reinforcing that while Ro5 is an excellent screening tool, it is not an absolute barrier for drug success.
 
-![Lipinski Violations Chart](images/lipinski_violations.png)
+![Lipinski Violations Chart](assets/lipinski_violations.png)
 *(Chart generated via Python)*
 
 ---
@@ -121,7 +121,7 @@ The SQL logic is modularized into 6 sequential scripts to ensure reproducibility
 
 > **Insight:** The analysis shows a consistent exponential growth in the identification of new metabolites, accelerating significantly after the year 2000. This is likely driven by the advent of High-Throughput Screening (HTS) and High-Resolution Mass Spectrometry (HRMS) technologies.
 
-![Historical Evolution Graph](images/historical_growth.png)
+![Historical Evolution Graph](assets/historical_growth.png)
 *(Chart generated via Python)*
 
 ---
